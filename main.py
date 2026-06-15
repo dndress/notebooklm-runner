@@ -161,8 +161,10 @@ async def _build_comic(
             job.notebook_id = nb.id
             log.info("job=%s notebook=%s", job.job_id, nb.id)
 
-            await client.sources.add_file(nb.id, visual_guide)
-            await client.sources.add_file(nb.id, transcript_path)
+            # wait=True blocks until the source is fully processed server-side;
+            # generate_slide_deck fails immediately if sources are still PROCESSING.
+            await client.sources.add_file(nb.id, visual_guide, wait=True, wait_timeout=300)
+            await client.sources.add_file(nb.id, transcript_path, wait=True, wait_timeout=300)
 
             status = await client.artifacts.generate_slide_deck(
                 nb.id,
