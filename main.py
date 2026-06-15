@@ -161,10 +161,23 @@ async def _build_comic(
             job.notebook_id = nb.id
             log.info("job=%s notebook=%s", job.job_id, nb.id)
 
-            # wait=True blocks until the source is fully processed server-side;
-            # generate_slide_deck fails immediately if sources are still PROCESSING.
-            await client.sources.add_file(nb.id, visual_guide, wait=True, wait_timeout=300)
-            await client.sources.add_file(nb.id, transcript_path, wait=True, wait_timeout=300)
+            # NOTE: `add_file` consistently fails with SourceProcessingError on
+            # NotebookLM's side for our markdown/text inputs — reproduced outside
+            # FastAPI, file is clean ASCII. `add_text` (Pasted text source) works
+            # via a different API path and is READY immediately. Both sources
+            # here are plain text so this is a clean swap.
+            vg_text = visual_guide.read_text(encoding="utf-8")
+            vg_title = f"{job.campaign.upper()} Player Visual Guide"
+            vg_src = await client.sources.add_text(nb.id, vg_title, vg_text)
+            log.info("job=%s visual_guide source=%s status=%s",
+                     job.job_id, vg_src.id, getattr(vg_src, "status", "?"))
+
+            tx_text = transcript_path.read_text(encoding="utf-8", errors="replace")
+            tx_title = f"{job.campaign.upper()} Session {job.session_id} Transcript"
+            tx_src = await client.sources.add_text(nb.id, tx_title, tx_text)
+            log.info("job=%s transcript source=%s status=%s size=%d bytes",
+                     job.job_id, tx_src.id, getattr(tx_src, "status", "?"),
+                     transcript_path.stat().st_size)
 
             status = await client.artifacts.generate_slide_deck(
                 nb.id,
