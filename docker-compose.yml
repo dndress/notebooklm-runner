@@ -1,0 +1,26 @@
+services:
+  notebooklm-runner:
+    build: .
+    container_name: notebooklm-runner
+    restart: unless-stopped
+    environment:
+      NOTEBOOKLM_HOME: /data/notebooklm
+      NBLM_ASSETS_DIR: /opt/nblm-assets
+      NBLM_LANGUAGE: es
+      NBLM_TIMEOUT: "1800"
+      NBLM_JOB_TTL: "86400"
+    volumes:
+      - notebooklm-data:/data/notebooklm
+      - ./assets:/opt/nblm-assets:ro
+    expose:
+      - "8000"
+    networks:
+      - n8n-net
+
+volumes:
+  notebooklm-data:
+
+networks:
+  n8n-net:
+    name: invents-n8n-gxu2qx
+    external: true
