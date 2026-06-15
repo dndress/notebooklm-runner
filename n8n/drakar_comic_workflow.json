@@ -1,0 +1,463 @@
+{
+  "name": "DRAKAR Comic Builder",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "triggerOn": "specificFolder",
+        "folderToWatch": "REPLACE_DRAKAR_TRANSCRIPTS_FOLDER_ID",
+        "event": "fileCreated",
+        "options": {}
+      },
+      "id": "drive-trigger",
+      "name": "Drive Trigger",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "campaign",
+              "value": "drakar",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "session_id",
+              "value": "={{ $json.name.match(/(\\d+)/)?.[1] || $json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "file_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-bootstrap",
+      "name": "Set: bootstrap",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $('Set: bootstrap').item.json.file_id }}",
+          "mode": "id"
+        },
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "id": "drive-download",
+      "name": "Drive Download",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://notebooklm-runner:8000/comic",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "campaign",
+              "value": "={{ $('Set: bootstrap').item.json.campaign }}"
+            },
+            {
+              "name": "session_id",
+              "value": "={{ $('Set: bootstrap').item.json.session_id }}"
+            },
+            {
+              "name": "transcript",
+              "parameterType": "formBinaryData",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "post-comic",
+      "name": "POST /comic",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1",
+              "name": "job_id",
+              "value": "={{ $json.job_id }}",
+              "type": "string"
+            },
+            {
+              "id": "b2",
+              "name": "attempts",
+              "value": 0,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-init-loop",
+      "name": "Set: init loop",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1080, 300]
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "id": "wait-60",
+      "name": "Wait 60s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1300, 300],
+      "webhookId": "wait-60-drakar"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=http://notebooklm-runner:8000/comic/{{ $('Set: init loop').item.json.job_id }}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "get-status",
+      "name": "GET status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1520, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const s = $input.first().json;\nconst prev = $('Set: init loop').item.json.attempts ?? 0;\nreturn [{ json: { ...s, job_id: $('Set: init loop').item.json.job_id, attempts: prev + 1 } }];"
+      },
+      "id": "code-tick",
+      "name": "Code: tick",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1740, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "r1",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "done",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "done"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "r2",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "failed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "failed"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "r3",
+                    "leftValue": "={{ $json.attempts }}",
+                    "rightValue": 30,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gt"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "timeout"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "loop"
+        }
+      },
+      "id": "switch-status",
+      "name": "Switch: status",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [1960, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=http://notebooklm-runner:8000/comic/{{ $('Set: init loop').item.json.job_id }}/pdf",
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "pdf"
+            }
+          }
+        }
+      },
+      "id": "get-pdf",
+      "name": "GET pdf",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2200, 140]
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "name": "=drakar_session_{{ $('Set: bootstrap').item.json.session_id }}.pdf",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_DRAKAR_COMICS_FOLDER_ID"
+        },
+        "options": {
+          "binaryPropertyName": "pdf"
+        }
+      },
+      "id": "drive-upload",
+      "name": "Drive Upload",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [2420, 140]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "sz",
+              "leftValue": "={{ $binary.pdf.fileSize }}",
+              "rightValue": 26214400,
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-size",
+      "name": "IF: size <= 25MB",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2640, 140]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "REPLACE_DISCORD_WEBHOOK_URL",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "payload_json",
+              "value": "={\"content\":\"DRAKAR session {{ $('Set: bootstrap').item.json.session_id }} comic is up! :scroll:\"}"
+            },
+            {
+              "name": "file",
+              "parameterType": "formBinaryData",
+              "inputDataFieldName": "pdf"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "discord-attach",
+      "name": "Discord: success (attach)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2860, 60]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "REPLACE_DISCORD_WEBHOOK_URL",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={\"content\":\"DRAKAR session {{ $('Set: bootstrap').item.json.session_id }} comic ready (too large to attach): {{ $('Drive Upload').item.json.webViewLink }}\"}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "discord-link",
+      "name": "Discord: success (link)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2860, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "REPLACE_DISCORD_WEBHOOK_URL",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={\"content\":\":warning: DRAKAR comic FAILED for session {{ $('Set: bootstrap').item.json.session_id }} (job {{ $('Set: init loop').item.json.job_id }}): {{ $('GET status').item.json.error || $json.error || 'no detail' }}\"}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "discord-fail",
+      "name": "Discord: failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2200, 460]
+    }
+  ],
+  "connections": {
+    "Drive Trigger": {
+      "main": [[{ "node": "Set: bootstrap", "type": "main", "index": 0 }]]
+    },
+    "Set: bootstrap": {
+      "main": [[{ "node": "Drive Download", "type": "main", "index": 0 }]]
+    },
+    "Drive Download": {
+      "main": [[{ "node": "POST /comic", "type": "main", "index": 0 }]]
+    },
+    "POST /comic": {
+      "main": [[{ "node": "Set: init loop", "type": "main", "index": 0 }]]
+    },
+    "Set: init loop": {
+      "main": [[{ "node": "Wait 60s", "type": "main", "index": 0 }]]
+    },
+    "Wait 60s": {
+      "main": [[{ "node": "GET status", "type": "main", "index": 0 }]]
+    },
+    "GET status": {
+      "main": [[{ "node": "Code: tick", "type": "main", "index": 0 }]]
+    },
+    "Code: tick": {
+      "main": [[{ "node": "Switch: status", "type": "main", "index": 0 }]]
+    },
+    "Switch: status": {
+      "main": [
+        [{ "node": "GET pdf", "type": "main", "index": 0 }],
+        [{ "node": "Discord: failure", "type": "main", "index": 0 }],
+        [{ "node": "Discord: failure", "type": "main", "index": 0 }],
+        [{ "node": "Wait 60s", "type": "main", "index": 0 }]
+      ]
+    },
+    "GET pdf": {
+      "main": [[{ "node": "Drive Upload", "type": "main", "index": 0 }]]
+    },
+    "Drive Upload": {
+      "main": [[{ "node": "IF: size <= 25MB", "type": "main", "index": 0 }]]
+    },
+    "IF: size <= 25MB": {
+      "main": [
+        [{ "node": "Discord: success (attach)", "type": "main", "index": 0 }],
+        [{ "node": "Discord: success (link)", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "",
+  "id": "",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
