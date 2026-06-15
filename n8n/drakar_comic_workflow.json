@@ -19,7 +19,10 @@
       "name": "Drive Trigger",
       "type": "n8n-nodes-base.googleDriveTrigger",
       "typeVersion": 1,
-      "position": [200, 300]
+      "position": [
+        200,
+        300
+      ]
     },
     {
       "parameters": {
@@ -53,7 +56,10 @@
       "name": "Set: bootstrap",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [420, 300]
+      "position": [
+        420,
+        300
+      ]
     },
     {
       "parameters": {
@@ -71,7 +77,10 @@
       "name": "Drive Download",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
-      "position": [640, 300]
+      "position": [
+        640,
+        300
+      ]
     },
     {
       "parameters": {
@@ -109,7 +118,10 @@
       "name": "POST /comic",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [860, 300]
+      "position": [
+        860,
+        300
+      ]
     },
     {
       "parameters": {
@@ -135,7 +147,10 @@
       "name": "Set: init loop",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [1080, 300]
+      "position": [
+        1080,
+        300
+      ]
     },
     {
       "parameters": {
@@ -146,7 +161,10 @@
       "name": "Wait 60s",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [1300, 300],
+      "position": [
+        1300,
+        300
+      ],
       "webhookId": "wait-60-drakar"
     },
     {
@@ -166,7 +184,10 @@
       "name": "GET status",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1520, 300]
+      "position": [
+        1520,
+        300
+      ]
     },
     {
       "parameters": {
@@ -176,7 +197,10 @@
       "name": "Code: tick",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1740, 300]
+      "position": [
+        1740,
+        300
+      ]
     },
     {
       "parameters": {
@@ -262,7 +286,10 @@
       "name": "Switch: status",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
-      "position": [1960, 300]
+      "position": [
+        1960,
+        300
+      ]
     },
     {
       "parameters": {
@@ -282,7 +309,10 @@
       "name": "GET pdf",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2200, 140]
+      "position": [
+        2200,
+        140
+      ]
     },
     {
       "parameters": {
@@ -306,7 +336,10 @@
       "name": "Drive Upload",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
-      "position": [2420, 140]
+      "position": [
+        2420,
+        140
+      ]
     },
     {
       "parameters": {
@@ -335,7 +368,10 @@
       "name": "IF: size <= 25MB",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [2640, 140]
+      "position": [
+        2640,
+        140
+      ]
     },
     {
       "parameters": {
@@ -364,7 +400,10 @@
       "name": "Discord: success (attach)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2860, 60]
+      "position": [
+        2860,
+        60
+      ]
     },
     {
       "parameters": {
@@ -375,13 +414,17 @@
         "jsonBody": "={\"content\":\"DRAKAR session {{ $('Set: bootstrap').item.json.session_id }} comic ready (too large to attach): {{ $('Drive Upload').item.json.webViewLink }}\"}",
         "options": {
           "timeout": 30000
-        }
+        },
+        "specifyBody": "json"
       },
       "id": "discord-link",
       "name": "Discord: success (link)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2860, 220]
+      "position": [
+        2860,
+        220
+      ]
     },
     {
       "parameters": {
@@ -392,58 +435,178 @@
         "jsonBody": "={\"content\":\":warning: DRAKAR comic FAILED for session {{ $('Set: bootstrap').item.json.session_id }} (job {{ $('Set: init loop').item.json.job_id }}): {{ $('GET status').item.json.error || $json.error || 'no detail' }}\"}",
         "options": {
           "timeout": 30000
-        }
+        },
+        "specifyBody": "json"
       },
       "id": "discord-fail",
       "name": "Discord: failure",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2200, 460]
+      "position": [
+        2200,
+        460
+      ]
     }
   ],
   "connections": {
     "Drive Trigger": {
-      "main": [[{ "node": "Set: bootstrap", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Set: bootstrap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Set: bootstrap": {
-      "main": [[{ "node": "Drive Download", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Drive Download",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Drive Download": {
-      "main": [[{ "node": "POST /comic", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "POST /comic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "POST /comic": {
-      "main": [[{ "node": "Set: init loop", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Set: init loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Set: init loop": {
-      "main": [[{ "node": "Wait 60s", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Wait 60s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Wait 60s": {
-      "main": [[{ "node": "GET status", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "GET status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "GET status": {
-      "main": [[{ "node": "Code: tick", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Code: tick",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Code: tick": {
-      "main": [[{ "node": "Switch: status", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Switch: status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Switch: status": {
       "main": [
-        [{ "node": "GET pdf", "type": "main", "index": 0 }],
-        [{ "node": "Discord: failure", "type": "main", "index": 0 }],
-        [{ "node": "Discord: failure", "type": "main", "index": 0 }],
-        [{ "node": "Wait 60s", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "GET pdf",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Discord: failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Discord: failure",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 60s",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "GET pdf": {
-      "main": [[{ "node": "Drive Upload", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "Drive Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Drive Upload": {
-      "main": [[{ "node": "IF: size <= 25MB", "type": "main", "index": 0 }]]
+      "main": [
+        [
+          {
+            "node": "IF: size <= 25MB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "IF: size <= 25MB": {
       "main": [
-        [{ "node": "Discord: success (attach)", "type": "main", "index": 0 }],
-        [{ "node": "Discord: success (link)", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Discord: success (attach)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Discord: success (link)",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
