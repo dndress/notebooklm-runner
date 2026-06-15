@@ -328,9 +328,8 @@
           "mode": "id",
           "value": "REPLACE_DRAKAR_COMICS_FOLDER_ID"
         },
-        "options": {
-          "binaryPropertyName": "pdf"
-        }
+        "options": {},
+        "binaryPropertyName": "pdf"
       },
       "id": "drive-upload",
       "name": "Drive Upload",
