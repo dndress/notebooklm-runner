@@ -16,7 +16,7 @@
         "options": {}
       },
       "id": "drive-trigger",
-      "name": "Drive Trigger",
+      "name": "Drive Trigger (transcripts)",
       "type": "n8n-nodes-base.googleDriveTrigger",
       "typeVersion": 1,
       "position": [
@@ -44,8 +44,14 @@
             },
             {
               "id": "a3",
-              "name": "file_id",
+              "name": "transcript_file_id",
               "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "comic_prompt_file_id",
+              "value": "REPLACE_DRAKAR_COMIC_PROMPT_FILE_ID",
               "type": "string"
             }
           ]
@@ -66,19 +72,143 @@
         "operation": "download",
         "fileId": {
           "__rl": true,
-          "value": "={{ $('Set: bootstrap').item.json.file_id }}",
+          "value": "={{ $('Set: bootstrap').item.json.transcript_file_id }}",
           "mode": "id"
         },
-        "options": {
-          "binaryPropertyName": "data"
-        }
+        "options": {},
+        "binaryPropertyName": "transcript"
       },
-      "id": "drive-download",
-      "name": "Drive Download",
+      "id": "drive-download-transcript",
+      "name": "Drive: Download Transcript",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
       "position": [
         640,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "binaryPropertyName": "transcript",
+        "options": {
+          "keepSource": "binary"
+        }
+      },
+      "id": "extract-transcript",
+      "name": "Extract Transcript Text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        860,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {}
+      },
+      "id": "gemini-model",
+      "name": "Gemini 2.5 Flash",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1080,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Extract Transcript Text').item.json.data }}",
+        "messages": {
+          "messageValues": [
+            {
+              "type": "system",
+              "message": "REPLACE_ME_IN_NODE \u2014 add the storyboard system prompt here in the n8n UI. The user input will be the raw session transcript. Output should be the distilled storyboard text for the comic generator."
+            }
+          ]
+        }
+      },
+      "id": "agent-storyboard",
+      "name": "AI Agent: Storyboard",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        1080,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const sessionId = $('Set: bootstrap').item.json.session_id;\nconst camp = $('Set: bootstrap').item.json.campaign;\n// LLM Chain output lives in $json.text or $json.response depending on version.\nconst j = $input.first().json;\nconst storyboardText = j.text || j.response || j.output || JSON.stringify(j);\nconst fileName = `session_${sessionId}.md`;\nreturn [{\n  json: { ...j, storyboard_text: storyboardText, storyboard_filename: fileName },\n  binary: {\n    storyboard: {\n      data: Buffer.from(storyboardText, 'utf-8').toString('base64'),\n      mimeType: 'text/markdown',\n      fileName,\n    },\n  },\n}];"
+      },
+      "id": "code-stash-storyboard",
+      "name": "Code: stash storyboard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "name": "={{ $json.storyboard_filename }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_DRAKAR_STORYBOARDS_FOLDER_ID"
+        },
+        "options": {},
+        "binaryPropertyName": "storyboard"
+      },
+      "id": "drive-upload-storyboard",
+      "name": "Drive: Upload Storyboard (archive)",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1520,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $('Set: bootstrap').item.json.comic_prompt_file_id }}",
+          "mode": "id"
+        },
+        "options": {},
+        "binaryPropertyName": "prompt"
+      },
+      "id": "drive-download-prompt",
+      "name": "Drive: Download Comic Prompt",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1520,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const sb = $('Code: stash storyboard').item;\nconst pr = $('Drive: Download Comic Prompt').item;\nreturn [{\n  json: { ...sb.json, ...$('Set: bootstrap').item.json },\n  binary: {\n    storyboard: sb.binary.storyboard,\n    prompt: pr.binary.prompt,\n  },\n}];"
+      },
+      "id": "code-merge-binaries",
+      "name": "Code: merge binaries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1740,
         300
       ]
     },
@@ -99,9 +229,14 @@
               "value": "={{ $('Set: bootstrap').item.json.session_id }}"
             },
             {
-              "name": "transcript",
+              "name": "storyboard",
               "parameterType": "formBinaryData",
-              "inputDataFieldName": "data"
+              "inputDataFieldName": "storyboard"
+            },
+            {
+              "name": "prompt",
+              "parameterType": "formBinaryData",
+              "inputDataFieldName": "prompt"
             }
           ]
         },
@@ -119,7 +254,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        860,
+        1960,
         300
       ]
     },
@@ -148,7 +283,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1080,
+        2180,
         300
       ]
     },
@@ -162,7 +297,7 @@
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [
-        1300,
+        2400,
         300
       ],
       "webhookId": "wait-60-drakar"
@@ -185,7 +320,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1520,
+        2620,
         300
       ]
     },
@@ -198,7 +333,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1740,
+        2840,
         300
       ]
     },
@@ -215,7 +350,7 @@
                 },
                 "conditions": [
                   {
-                    "id": "r1",
+                    "id": "done",
                     "leftValue": "={{ $json.status }}",
                     "rightValue": "done",
                     "operator": {
@@ -238,7 +373,7 @@
                 },
                 "conditions": [
                   {
-                    "id": "r2",
+                    "id": "failed",
                     "leftValue": "={{ $json.status }}",
                     "rightValue": "failed",
                     "operator": {
@@ -261,7 +396,7 @@
                 },
                 "conditions": [
                   {
-                    "id": "r3",
+                    "id": "timeout",
                     "leftValue": "={{ $json.attempts }}",
                     "rightValue": 30,
                     "operator": {
@@ -287,7 +422,7 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        1960,
+        3060,
         300
       ]
     },
@@ -310,7 +445,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2200,
+        3300,
         140
       ]
     },
@@ -331,12 +466,12 @@
         "options": {},
         "binaryPropertyName": "pdf"
       },
-      "id": "drive-upload",
-      "name": "Drive Upload",
+      "id": "drive-upload-comic",
+      "name": "Drive Upload (comic PDF)",
       "type": "n8n-nodes-base.googleDrive",
       "typeVersion": 3,
       "position": [
-        2420,
+        3520,
         140
       ]
     },
@@ -351,7 +486,7 @@
           "conditions": [
             {
               "id": "sz",
-              "leftValue": "={{ $binary.pdf.fileSize }}",
+              "leftValue": "={{ $('GET pdf').item.binary.pdf.fileSize }}",
               "rightValue": 26214400,
               "operator": {
                 "type": "number",
@@ -368,7 +503,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        2640,
+        3740,
         140
       ]
     },
@@ -400,7 +535,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2860,
+        3960,
         60
       ]
     },
@@ -410,18 +545,18 @@
         "url": "REPLACE_DISCORD_WEBHOOK_URL",
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={\"content\":\"DRAKAR session {{ $('Set: bootstrap').item.json.session_id }} comic ready (too large to attach): {{ $('Drive Upload').item.json.webViewLink }}\"}",
+        "specifyBody": "json",
+        "jsonBody": "={\"content\":\"DRAKAR session {{ $('Set: bootstrap').item.json.session_id }} comic ready (too large to attach): {{ $('Drive Upload (comic PDF)').item.json.webViewLink }}\"}",
         "options": {
           "timeout": 30000
-        },
-        "specifyBody": "json"
+        }
       },
       "id": "discord-link",
       "name": "Discord: success (link)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2860,
+        3960,
         220
       ]
     },
@@ -431,24 +566,24 @@
         "url": "REPLACE_DISCORD_WEBHOOK_URL",
         "sendBody": true,
         "contentType": "json",
+        "specifyBody": "json",
         "jsonBody": "={\"content\":\":warning: DRAKAR comic FAILED for session {{ $('Set: bootstrap').item.json.session_id }} (job {{ $('Set: init loop').item.json.job_id }}): {{ $('GET status').item.json.error || $json.error || 'no detail' }}\"}",
         "options": {
           "timeout": 30000
-        },
-        "specifyBody": "json"
+        }
       },
       "id": "discord-fail",
       "name": "Discord: failure",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2200,
+        3300,
         460
       ]
     }
   ],
   "connections": {
-    "Drive Trigger": {
+    "Drive Trigger (transcripts)": {
       "main": [
         [
           {
@@ -463,14 +598,85 @@
       "main": [
         [
           {
-            "node": "Drive Download",
+            "node": "Drive: Download Transcript",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Drive Download": {
+    "Drive: Download Transcript": {
+      "main": [
+        [
+          {
+            "node": "Extract Transcript Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Transcript Text": {
+      "main": [
+        [
+          {
+            "node": "AI Agent: Storyboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini 2.5 Flash": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent: Storyboard",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent: Storyboard": {
+      "main": [
+        [
+          {
+            "node": "Code: stash storyboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: stash storyboard": {
+      "main": [
+        [
+          {
+            "node": "Drive: Upload Storyboard (archive)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Drive: Download Comic Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Drive: Download Comic Prompt": {
+      "main": [
+        [
+          {
+            "node": "Code: merge binaries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: merge binaries": {
       "main": [
         [
           {
@@ -572,22 +778,21 @@
       "main": [
         [
           {
-            "node": "Drive Upload",
+            "node": "Drive Upload (comic PDF)",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "Drive Upload": {
-      "main": [
-        [
+          },
           {
             "node": "IF: size <= 25MB",
             "type": "main",
             "index": 0
           }
         ]
+      ]
+    },
+    "Drive Upload (comic PDF)": {
+      "main": [
+        []
       ]
     },
     "IF: size <= 25MB": {

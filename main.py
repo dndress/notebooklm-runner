@@ -3,31 +3,39 @@ notebooklm-runner: FastAPI sidecar wrapping the `notebooklm-py` library so n8n
 can trigger D&D session -> comic PDF generation via NotebookLM with a simple
 HTTP POST.
 
+v0.3.0 architecture (storyboard + per-campaign prompt both from Drive):
+    - Source 1: player_visual_guide (per-campaign, baked into container assets)
+    - Source 2: storyboard (per-session, uploaded via multipart from n8n)
+    - instructions= prompt: comic_prompt (per-campaign, uploaded via multipart from n8n)
+
 Endpoints:
-    POST /comic                 -> upload transcript, kick off comic build, returns {job_id}
+    POST /comic                 -> upload storyboard + prompt, kick off build, returns {job_id}
     GET  /comic/{job_id}        -> { status, error? }
     GET  /comic/{job_id}/pdf    -> application/pdf
     GET  /health                -> liveness + storage_state + campaigns
 
+POST /comic multipart body:
+    campaign     (form, str)   campaign slug, lowercase normalized (pf2e / drakar / ...)
+    session_id   (form, str)   session number or label, used in titles + PDF filename
+    storyboard   (file)        distilled storyboard text for this session
+    prompt       (file)        comic-generator prompt for this campaign (or session)
+
 Env vars:
     NOTEBOOKLM_HOME        Path to dir holding storage_state.json (default /data/notebooklm)
-    NBLM_ASSETS_DIR        Where per-campaign asset subdirs live (default /opt/nblm-assets)
+    NBLM_ASSETS_DIR        Where per-campaign visual guides live (default /opt/nblm-assets)
     NBLM_LANGUAGE          BCP-47 lang code passed to generate_slide_deck (default "es")
     NBLM_TIMEOUT           Seconds to wait for slide deck generation (default 1800)
     NBLM_JOB_TTL           Seconds before completed jobs + temp dirs are purged (default 86400)
 
-Asset layout (per campaign, lowercase subdir name = campaign flag value):
+Asset layout (per-campaign, lowercase subdir = campaign flag value):
     /opt/nblm-assets/
         pf2e/
             00_PF2_Player_visual_guide.md
-            00_PF2_generator_prompt.md
         drakar/
             00_drakar_player_visual_guide.md
-            00_drakar_outline_generator_prompt.md
 
-Files are discovered by glob: anything matching `*visual_guide*.md` is treated as
-a source; anything matching `*generator_prompt*.md` is the instructions prompt.
-Exactly one of each must exist per campaign subdir.
+Only the visual guide is discovered by glob (`*visual_guide*.md`). The prompt
+and the storyboard arrive per-request, not from the filesystem.
 """
 
 from __future__ import annotations
@@ -62,7 +70,6 @@ WORK_ROOT = Path("/tmp/notebooklm-runner")
 WORK_ROOT.mkdir(parents=True, exist_ok=True)
 
 VISUAL_GUIDE_GLOB = "*visual_guide*.md"
-GENERATOR_PROMPT_GLOB = "*generator_prompt*.md"
 
 
 Status = Literal["queued", "running", "done", "failed"]
@@ -85,7 +92,7 @@ JOBS: dict[str, Job] = {}
 JOB_LOCK = asyncio.Lock()
 
 
-app = FastAPI(title="notebooklm-runner", version="0.2.0")
+app = FastAPI(title="notebooklm-runner", version="0.3.0")
 
 
 # ---------------------------------------------------------------------------
@@ -102,8 +109,8 @@ def _list_campaigns() -> list[str]:
     return sorted(p.name for p in ASSETS_DIR.iterdir() if p.is_dir())
 
 
-def _resolve_campaign(campaign: str) -> tuple[Path, Path]:
-    """Return (visual_guide_path, generator_prompt_path) for `campaign`."""
+def _resolve_visual_guide(campaign: str) -> Path:
+    """Return visual_guide path for `campaign`. Prompt + storyboard now arrive per-request."""
     camp = _normalize_campaign(campaign)
     camp_dir = ASSETS_DIR / camp
     if not camp_dir.is_dir():
@@ -112,18 +119,12 @@ def _resolve_campaign(campaign: str) -> tuple[Path, Path]:
             detail=f"unknown campaign '{camp}'; available: {_list_campaigns()}",
         )
     guides = sorted(camp_dir.glob(VISUAL_GUIDE_GLOB))
-    prompts = sorted(camp_dir.glob(GENERATOR_PROMPT_GLOB))
     if len(guides) != 1:
         raise HTTPException(
             status_code=500,
             detail=f"campaign '{camp}': expected 1 visual_guide match, found {len(guides)}",
         )
-    if len(prompts) != 1:
-        raise HTTPException(
-            status_code=500,
-            detail=f"campaign '{camp}': expected 1 generator_prompt match, found {len(prompts)}",
-        )
-    return guides[0], prompts[0]
+    return guides[0]
 
 
 def _job_dir(job_id: str) -> Path:
@@ -140,9 +141,9 @@ def _purge_expired() -> None:
 
 async def _build_comic(
     job: Job,
-    transcript_path: Path,
+    storyboard_path: Path,
+    prompt_path: Path,
     visual_guide: Path,
-    generator_prompt: Path,
 ) -> None:
     """Run the full NotebookLM pipeline for one job."""
     job.status = "running"
@@ -151,7 +152,7 @@ async def _build_comic(
         job.job_id, job.campaign, job.session_id,
     )
     try:
-        instructions = generator_prompt.read_text(encoding="utf-8")
+        instructions = prompt_path.read_text(encoding="utf-8", errors="replace")
         pdf_out = _job_dir(job.job_id) / "comic.pdf"
 
         async with NotebookLMClient.from_storage() as client:
@@ -159,25 +160,26 @@ async def _build_comic(
                 f"{job.campaign.upper()} Session {job.session_id}"
             )
             job.notebook_id = nb.id
-            log.info("job=%s notebook=%s", job.job_id, nb.id)
+            log.info(
+                "job=%s notebook=%s prompt_size=%d bytes",
+                job.job_id, nb.id, prompt_path.stat().st_size,
+            )
 
-            # NOTE: `add_file` consistently fails with SourceProcessingError on
-            # NotebookLM's side for our markdown/text inputs — reproduced outside
-            # FastAPI, file is clean ASCII. `add_text` (Pasted text source) works
-            # via a different API path and is READY immediately. Both sources
-            # here are plain text so this is a clean swap.
+            # `add_text` (Pasted text) instead of `add_file` — see v0.2.0 note;
+            # NotebookLM's source processor rejects the lib's resumable upload
+            # path with SourceProcessingError for our markdown/plaintext inputs.
             vg_text = visual_guide.read_text(encoding="utf-8")
             vg_title = f"{job.campaign.upper()} Player Visual Guide"
             vg_src = await client.sources.add_text(nb.id, vg_title, vg_text)
             log.info("job=%s visual_guide source=%s status=%s",
                      job.job_id, vg_src.id, getattr(vg_src, "status", "?"))
 
-            tx_text = transcript_path.read_text(encoding="utf-8", errors="replace")
-            tx_title = f"{job.campaign.upper()} Session {job.session_id} Transcript"
-            tx_src = await client.sources.add_text(nb.id, tx_title, tx_text)
-            log.info("job=%s transcript source=%s status=%s size=%d bytes",
-                     job.job_id, tx_src.id, getattr(tx_src, "status", "?"),
-                     transcript_path.stat().st_size)
+            sb_text = storyboard_path.read_text(encoding="utf-8", errors="replace")
+            sb_title = f"{job.campaign.upper()} Session {job.session_id} Storyboard"
+            sb_src = await client.sources.add_text(nb.id, sb_title, sb_text)
+            log.info("job=%s storyboard source=%s status=%s size=%d bytes",
+                     job.job_id, sb_src.id, getattr(sb_src, "status", "?"),
+                     storyboard_path.stat().st_size)
 
             status = await client.artifacts.generate_slide_deck(
                 nb.id,
@@ -213,10 +215,11 @@ async def _build_comic(
         job.error = f"{type(e).__name__}: {e}"
     finally:
         job.finished_at = time.time()
-        try:
-            transcript_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+        for p in (storyboard_path, prompt_path):
+            try:
+                p.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -228,29 +231,33 @@ async def create_comic(
     background: BackgroundTasks,
     campaign: str = Form(...),
     session_id: str = Form(...),
-    transcript: UploadFile = File(...),
+    storyboard: UploadFile = File(...),
+    prompt: UploadFile = File(...),
 ):
     _purge_expired()
-    visual_guide, generator_prompt = _resolve_campaign(campaign)
+    visual_guide = _resolve_visual_guide(campaign)
     camp = _normalize_campaign(campaign)
 
     job_id = uuid.uuid4().hex
     work = _job_dir(job_id)
     work.mkdir(parents=True, exist_ok=True)
-    transcript_path = work / "transcript.txt"
+    storyboard_path = work / "storyboard.txt"
+    prompt_path = work / "prompt.txt"
 
-    with transcript_path.open("wb") as f:
-        while True:
-            chunk = await transcript.read(1 << 20)
-            if not chunk:
-                break
-            f.write(chunk)
+    # Stream both uploads to disk in chunks; large prompts/storyboards stay off-heap.
+    for upload, dest in ((storyboard, storyboard_path), (prompt, prompt_path)):
+        with dest.open("wb") as f:
+            while True:
+                chunk = await upload.read(1 << 20)
+                if not chunk:
+                    break
+                f.write(chunk)
 
     async with JOB_LOCK:
         JOBS[job_id] = Job(job_id=job_id, session_id=session_id, campaign=camp)
 
     background.add_task(
-        _build_comic, JOBS[job_id], transcript_path, visual_guide, generator_prompt,
+        _build_comic, JOBS[job_id], storyboard_path, prompt_path, visual_guide,
     )
     return {"job_id": job_id, "session_id": session_id, "campaign": camp}
 
@@ -288,7 +295,7 @@ async def get_pdf(job_id: str):
 @app.get("/health")
 async def health():
     storage_ok = (Path(os.environ.get("NOTEBOOKLM_HOME", "/data/notebooklm"))
-                  / "storage_state.json").is_file()
+                  / "profiles" / "default" / "storage_state.json").is_file()
     return {
         "ok": True,
         "storage_state": storage_ok,
